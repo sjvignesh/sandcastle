@@ -113,7 +113,8 @@ fn main() {
 
         println!("Container spinned up with id: {}", id);
         
-        let command = Command::new("/home/local/ZOHOCORP/vignesh-pt3767/jailer/target/debug/jailer")
+        let mut command = Command::new("/home/local/ZOHOCORP/vignesh-pt3767/jailer/target/debug/jailer");
+        let mut command = command
             .arg("-i").arg(id.to_string())
             .arg("-t").arg(target.to_string())
             .arg("-q").arg(quota.to_string())
@@ -149,27 +150,33 @@ fn main() {
             println!("No process found with ID: {}", process_id);
         } else {
             println!("Stats for sandcastle ID: {}", process_id);
-            print_stats(process_id);
+            print_stats(process_id).unwrap();
         }
     }
 }
 
 fn create_root_dirs() -> Result<(), io::Error> {
-    if !Path::new(MOUNT_POINT).is_dir() || !Path::new(&format!("{}/cpuacct/sandcastle", CGROUP_ROOT)[..]).is_dir() {
+    if !Path::new(MOUNT_POINT).is_dir() {
         fs::create_dir_all(MOUNT_POINT)?;
+    }
 
+    if !Path::new(&format!("{}/cpuacct/sandcastle", CGROUP_ROOT)[..]).is_dir() {
         fs::create_dir_all(&format!("{}/cpuacct/sandcastle/", CGROUP_ROOT)[..])?;
+    }
+
+    if !Path::new(&format!("{}/cpu/sandcastle", CGROUP_ROOT)[..]).is_dir() {
         fs::create_dir_all(&format!("{}/cpu/sandcastle/", CGROUP_ROOT)[..])?;
+    }
+    
+    if !Path::new(&format!("{}/cpuset/sandcastle", CGROUP_ROOT)[..]).is_dir() {
         fs::create_dir_all(&format!("{}/cpuset/sandcastle/", CGROUP_ROOT)[..])?;
+
+        write_special(&format!("{}/cpuset/sandcastle/cpuset.mems", CGROUP_ROOT), &"0".to_string())?;
+        write_special(&format!("{}/cpuset/sandcastle/cpuset.cpus", CGROUP_ROOT), &"0-11".to_string())?;
+    }
+
+    if !Path::new(&format!("{}/pids/sandcastle", CGROUP_ROOT)[..]).is_dir() {
         fs::create_dir_all(&format!("{}/pids/sandcastle/", CGROUP_ROOT)[..])?;
-
-        let path = format!("{}/cpuset/sandcastle/", CGROUP_ROOT);
-
-        let mut mems_file = fs::OpenOptions::new().append(true).open(format!("{}/cpuset.mems", path))?;
-        mems_file.write("0".as_bytes())?;
-
-        let mut cpus_file = fs::OpenOptions::new().append(true).open(format!("{}/cpuset.cpus", path))?;
-        cpus_file.write("0-3".as_bytes())?;
     }
 
     Ok(())
@@ -177,7 +184,7 @@ fn create_root_dirs() -> Result<(), io::Error> {
 
 fn list_containers() {
     if let Ok(sandcastle) = fs::read_dir(MOUNT_POINT) {
-        println!("Container ID\tUser Program");
+        println!("Container ID\t\tUser Program");
 
         for container in sandcastle {
             if let Ok(container) = container {
@@ -226,28 +233,28 @@ fn clean_cgroup(path: &str) {
 fn print_stats(process_id: &str) -> Result<(), io::Error> {
     let mut cpuacct = String::new();
     read_special(
-        format!("{}/cpuacct/sandcastle/{}/cpuacct.usage_all", CGROUP_ROOT, process_id),
+        &format!("{}/cpuacct/sandcastle/{}/cpuacct.usage_all", CGROUP_ROOT, process_id),
         &mut cpuacct
     )?;
     println!("CPU usage per core (both user and system):\n{}", cpuacct);
 
     let mut cpu_usage = String::new();
     read_special(
-        format!("{}/cpuacct/sandcastle/{}/cpuacct.usage", CGROUP_ROOT, process_id),
+        &format!("{}/cpuacct/sandcastle/{}/cpuacct.usage", CGROUP_ROOT, process_id),
         &mut cpu_usage
     )?;
     println!("Total CPU usage by user and system:\n{}", cpu_usage);
 
     let mut cpuacct_stat = String::new();
     read_special(
-        format!("{}/cpuacct/sandcastle/{}/cpuacct.usage", CGROUP_ROOT, process_id),
+        &format!("{}/cpuacct/sandcastle/{}/cpuacct.usage", CGROUP_ROOT, process_id),
         &mut cpuacct_stat
     )?;
     println!("CPU usage by user and system:\n{}", cpuacct_stat);
 
     let mut cpu_stat = String::new();
     read_special(
-        format!("{}/cpuacct/sandcastle/{}/cpu.stat", CGROUP_ROOT, process_id),
+        &format!("{}/cpuacct/sandcastle/{}/cpu.stat", CGROUP_ROOT, process_id),
         &mut cpu_stat
     )?;
     println!("Other CPU stats:\n{}", cpu_stat);
@@ -258,6 +265,13 @@ fn print_stats(process_id: &str) -> Result<(), io::Error> {
 fn read_special(file: &String, buffer: &mut String) -> Result<(), io::Error> {
     let mut file = fs::OpenOptions::new().read(true).open(&file[..])?;
     file.read_to_string(buffer)?;
+
+    Ok(())
+}
+
+fn write_special(file: &String, data: &String) -> Result<(), io::Error> {
+    let mut file = fs::OpenOptions::new().append(true).open(&file[..])?;
+    file.write(data.as_bytes())?;
 
     Ok(())
 }
